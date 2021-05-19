@@ -20,31 +20,9 @@ namespace ATMMachine
             };
 
             WalletModel wallet = new WalletModel(balance: 230);
-            int pin;
-            for (int i = 0; i < cards.Count; i++)
-            {
-                Console.Write($"Insert pin for your card number {cards.ElementAt(i).CardId} registered with the bank {cards.ElementAt(i).BankName}: ");
-                if (!int.TryParse(Console.ReadLine(), out pin))
-                {
-                    Console.WriteLine("Value inserted not accepted, try again");
-                    i--;
-                    continue;
-                }
-                byte[] salt;
-                new RNGCryptoServiceProvider().GetBytes(salt = new byte[16]);
 
-                var bytes = BitConverter.GetBytes(pin);
+            SecurityManager.CreatePinHash(ref cards,ref wallet);
 
-                var pbkdf2 = new Rfc2898DeriveBytes(bytes, salt, 100000);
-                byte[] hash = pbkdf2.GetBytes(20);
-
-                byte[] hashBytes = new byte[36];
-                Array.Copy(salt, 0, hashBytes, 0, 16);
-                Array.Copy(hash, 0, hashBytes, 16, 20);
-
-                cards.ElementAt(i).PasswordHash = Convert.ToBase64String(hashBytes);
-            }
-            pin = 0;
             Console.WriteLine("Clear console to hide passwords? Y/N");
             if (Console.ReadLine().ToLower().Contains("y")) Console.Clear();
 
@@ -60,6 +38,13 @@ namespace ATMMachine
 
             //This ensures the app is always running
             Console.WriteLine("To return here just write \"cancel\" anywhere");
+
+            TheActualProgram(ref cards, ref wallet, ATMoptions);//Yea lets not talk about the method naming
+
+        }
+
+        static void TheActualProgram(ref List<CardModel> cards, ref WalletModel wallet, IDictionary<int, string> ATMoptions)
+        {
             while (true)
             {
                 bool cardHasBeenEntered = false;
@@ -92,163 +77,124 @@ namespace ATMMachine
                 cardHasBeenEntered = true;
 
                 string input;
-                int InsertedPin;
-                byte[] intBytes;
-                bool correctPassword;
-                while (true)
+
+                if (!SecurityManager.IsPinValid(ref cardHasBeenEntered, ref chosenCard))
                 {
-                    correctPassword = true;
-                    Console.WriteLine("Insert the pin number of the selected card");
-                    input = Console.ReadLine();
-                    if (input.ToLower().Contains("cancel"))
-                    {
-                        cardHasBeenEntered = false;
-                        break;
-                    }
-                    if (!int.TryParse(input, out InsertedPin))
-                    {
-                        Console.WriteLine("Inserted value not accepted, please try again\n");
-                        continue;
-                    }
-                    intBytes = BitConverter.GetBytes(InsertedPin);
-
-                    string savedPasswordHash = chosenCard.PasswordHash;
-
-                    byte[] hashBytes = Convert.FromBase64String(savedPasswordHash);
-
-                    byte[] salt = new byte[16];
-
-                    Array.Copy(hashBytes, 0, salt, 0, 16);
-
-                    var pbkdf2 = new Rfc2898DeriveBytes(intBytes, salt, 100000);
-
-                    byte[] hash = pbkdf2.GetBytes(20);
-
-                    for (int i = 0; i < 20; i++)
-                        if (hashBytes[i + 16] != hash[i])
-                        {
-                            correctPassword = false;
-
-                            chosenCard.NumberOfFailedAttempts += 1;
-
-                            Console.WriteLine($"Inserted pin is incorrect, amount of tries remaining {3 - chosenCard.NumberOfFailedAttempts}\n");
-
-                            if (chosenCard.NumberOfFailedAttempts == 3)
-                            {
-                                chosenCard.IsCardLocked = true;
-
-                                Console.WriteLine("Card has been locked since there have been 3 failed attempts\n");
-                            }
-                            break;
-                        }
-                    if (chosenCard.IsCardLocked || correctPassword) break;
+                    if (!cardHasBeenEntered || chosenCard.IsCardLocked) continue;
                 }
-
-                if (!cardHasBeenEntered || chosenCard.IsCardLocked) continue;
 
                 chosenCard.NumberOfFailedAttempts = 0;
 
-                while (cardHasBeenEntered)
+                SelectOptions(ref cardHasBeenEntered, ATMoptions, ref chosenCard, ref wallet);
+            }
+        }
+
+        static void SelectOptions(ref bool cardHasBeenEntered, IDictionary<int, string> ATMoptions, ref CardModel chosenCard, ref WalletModel wallet)
+        {
+            string input;
+            while (cardHasBeenEntered)
+            {
+                //Tell the user to chose from a list of options
+                Console.WriteLine("Choose from a list of options....");
+
+                //loop through the options declared on line 21, and print
+                foreach (KeyValuePair<int, string> option in ATMoptions)
                 {
-                    //Tell the user to chose from a list of options
-                    Console.WriteLine("Choose from a list of options....");
+                    Console.WriteLine($"{option.Key}: - {option.Value}");
+                }
 
-                    //loop through the options declared on line 21, and print
-                    foreach (KeyValuePair<int, string> option in ATMoptions)
-                    {
-                        Console.WriteLine($"{option.Key}: - {option.Value}");
-                    }
+                input = Console.ReadLine();
+                if (input.ToLower().Contains("cancel"))
+                {
+                    cardHasBeenEntered = false;
+                    break;
+                }
+                bool validChosenAction = int.TryParse(input, out int chosenAction);
+                if (!validChosenAction) continue;
+                // If the chosen value is value go into the specifics of the options
+                ChoosenActionSwitch(chosenAction, ref cardHasBeenEntered, ref chosenCard, ref wallet);
+            }
+        }
+        static void ChoosenActionSwitch(int chosenAction, ref bool cardHasBeenEntered, ref CardModel chosenCard, ref WalletModel wallet)
+        {
+            string input;
+            switch (chosenAction)
+            {
+                case 1:
+                    //returns the user to the welcome page and clears the console
+                    cardHasBeenEntered = false;
+                    Console.Clear();
+                    break;
 
-                    input = Console.ReadLine();
-                    if (input.ToLower().Contains("cancel"))
-                    {
-                        cardHasBeenEntered = false;
-                        break;
-                    }
-                    bool validChosenAction = int.TryParse(input, out int chosenAction);
+                case 2:
+                    //Displays the value of the current card/account
+                    Console.WriteLine($"W: {chosenCard.Balance} Wibbly Dollars.\nWallet balance: {wallet.Balance}");
+                    break;
 
-                    // If the chosen value is value go into the specifics of the options
-                    if (validChosenAction)
+                case 3:
+                    //This could be put into a method but it would be harder to read, lets leave it here
+                    while (true)
                     {
-                        switch (chosenAction)
+                        //ask the user to enter an amount to withdraw
+                        Console.WriteLine($"Select an amount to withdraw...");
+                        input = Console.ReadLine();
+                        if (input.ToLower().Contains("cancel"))
                         {
-                            case 1:
-                                //returns the user to the welcome page and clears the console
-                                cardHasBeenEntered = false;
-                                Console.Clear();
+                            cardHasBeenEntered = false;
+                            break;
+                        }
+                        if (int.TryParse(input, out int ammount))
+                        {
+                            if (ammount < 0)
+                            {
+                                Console.WriteLine("Inserted value can not be negative\n");
+                            }
+                            else
+                            {
+                                WithdrawWibblyDollars(ammount, chosenCard, wallet);
                                 break;
-
-                            case 2:
-                                //Displays the value of the current card/account
-                                Console.WriteLine($"W: {chosenCard.Balance} Wibbly Dollars.\nWallet balance: {wallet.Balance}");
-                                break;
-
-                            case 3:
-                                while (true)
-                                {
-                                    //ask the user to enter an amount to withdraw
-                                    Console.WriteLine($"Select an amount to withdraw...");
-                                    input = Console.ReadLine();
-                                    if (input.ToLower().Contains("cancel"))
-                                    {
-                                        cardHasBeenEntered = false;
-                                        break;
-                                    }
-                                    if (int.TryParse(input, out int ammount))
-                                    {
-                                        if (ammount < 0)
-                                        {
-                                            Console.WriteLine("Inserted value can not be negative\n");
-                                        }
-                                        else
-                                        {
-                                            WithdrawWibblyDollars(ammount, chosenCard, wallet);
-                                            break;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine($"Inserted value isnt acccepted, try again\n");
-                                    }
-                                }
-                                break;
-                            case 4:
-                                while (true)
-                                {
-                                    //ask the user to enter an amount to withdraw
-                                    Console.WriteLine($"Select an amount to deposit...");
-                                    input = Console.ReadLine();
-                                    if (input.ToLower().Contains("cancel"))
-                                    {
-                                        cardHasBeenEntered = false;
-                                        break;
-                                    }
-                                    if (int.TryParse(input, out int ammount))
-                                    {
-                                        if (ammount < 0)
-                                        {
-                                            Console.WriteLine("Inserted value can not be negative\n");
-                                        }
-                                        else
-                                        {
-                                            DepositWibblyDollars(ammount, chosenCard, wallet);
-                                            break;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine($"Inserted value isnt acccepted, try again\n");
-                                    }
-                                }
-                                break;
-                            default:
-                                Console.WriteLine($"Inserted value isnt acccepted, try again\n");
-                                break;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Inserted value isnt acccepted, try again\n");
                         }
                     }
-                }
+                    break;
+                case 4:
+                    //This could be put into a method but it would be harder to read, lets leave it here
+                    while (true)
+                    {
+                        //ask the user to enter an amount to withdraw
+                        Console.WriteLine($"Select an amount to deposit...");
+                        input = Console.ReadLine();
+                        if (input.ToLower().Contains("cancel"))
+                        {
+                            cardHasBeenEntered = false;
+                            break;
+                        }
+                        if (int.TryParse(input, out int ammount))
+                        {
+                            if (ammount < 0)
+                            {
+                                Console.WriteLine("Inserted value can not be negative\n");
+                            }
+                            else
+                            {
+                                DepositWibblyDollars(ammount, chosenCard, wallet);
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Inserted value isnt acccepted, try again\n");
+                        }
+                    }
+                    break;
+                default:
+                    Console.WriteLine($"Inserted value isnt acccepted, try again\n");
+                    break;
             }
-
         }
         static void DepositWibblyDollars(int amount, CardModel chosenCard, WalletModel wallet)
         {
@@ -277,5 +223,6 @@ namespace ATMMachine
 
             Console.WriteLine(message);
         }
+
     }
 }
